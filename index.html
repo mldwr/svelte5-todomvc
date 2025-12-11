@@ -14,10 +14,12 @@
 		</footer>
 
 		<script type="module">
+			import { mount } from 'svelte';
 			import TodoMVC from './src/TodoMVC.svelte';
-			window.todomvc = new TodoMVC({
+			const app = mount(TodoMVC, {
 				target: document.querySelector('.todoapp')
 			});
+			window.todomvc = app;
 		</script>
 
 		<script defer src="/todomvc-common/base.js"></script>

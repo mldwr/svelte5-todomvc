@@ -1,37 +1,34 @@
 <script>
 	import 'todomvc-app-css/index.css';
-	import { onMount } from 'svelte';
-
-	const ENTER_KEY = 13;
-	const ESCAPE_KEY = 27;
 
 	const active = (item) => !item.completed;
 	const completed = (item) => item.completed;
 
-	let currentFilter = 'all';
-	let items = [];
-	let editing = null;
+	let currentFilter = $state('all');
+	let items = $state((() => {
+		try {
+			return JSON.parse(localStorage.getItem('todos-svelte')) || [];
+		} catch {
+			return [];
+		}
+	})());
+	let editing = $state(null);
 
-	try {
-		items = JSON.parse(localStorage.getItem('todos-svelte')) || [];
-	} catch {
-		items = [];
-	}
-
-	$: filtered =
+	const filtered = $derived(
 		currentFilter === 'all'
 			? items
-			: items.filter(currentFilter === 'completed' ? completed : active);
+			: items.filter(currentFilter === 'completed' ? completed : active)
+	);
 
-	$: numActive = items.filter(active).length;
+	const numActive = $derived(items.filter(active).length);
 
-	$: numCompleted = items.filter(completed).length;
+	const numCompleted = $derived(items.filter(completed).length);
 
-	$: try {
-		localStorage.setItem('todos-svelte', JSON.stringify(items));
-	} catch {
-		// noop
-	}
+	$effect(() => {
+		try {
+			localStorage.setItem('todos-svelte', JSON.stringify(items));
+		} catch {}
+	});
 
 	const updateView = () => {
 		currentFilter = 'all';
@@ -42,52 +39,58 @@
 		}
 	};
 
+	// Initialize filter based on current hash
+	updateView();
+
 	function clearCompleted() {
 		items = items.filter(active);
 	}
 
-	function remove(index) {
-		items = items.slice(0, index).concat(items.slice(index + 1));
+	function remove(id) {
+		items = items.filter((item) => item.id !== id);
 	}
 
 	function toggleAll(event) {
-		items = items.map((item) => ({
-			id: item.id,
-			description: item.description,
-			completed: event.target.checked
-		}));
+		items = items.map((item) => ({ ...item, completed: event.target.checked }));
 	}
 
 	function createNew(event) {
-		if (event.which === ENTER_KEY) {
-			items = items.concat({
+		if (event.key === 'Enter') {
+			const value = event.target.value.trim();
+			if (!value) return;
+			items = [...items, {
 				id: crypto.randomUUID(),
-				description: event.target.value,
+				description: value,
 				completed: false
-			});
+			}];
 			event.target.value = '';
 		}
 	}
 
 	function handleEdit(event) {
-		if (event.which === ENTER_KEY) event.target.blur();
-		else if (event.which === ESCAPE_KEY) editing = null;
+		if (event.key === 'Enter') event.target.blur();
+		else if (event.key === 'Escape') editing = null;
 	}
 
 	function submit(event) {
-		items[editing].description = event.target.value;
+		const value = event.target.value.trim();
+		if (!value) {
+			editing = null;
+			return;
+		}
+		items = items.map((item) =>
+			item.id === editing ? { ...item, description: value } : item
+		);
 		editing = null;
 	}
-
-	onMount(updateView);
 </script>
 
-<svelte:window on:hashchange={updateView} />
+<svelte:window onhashchange={updateView} />
 
 <header class="header">
 	<h1>todos</h1>
-	<!-- svelte-ignore a11y-autofocus -->
-	<input class="new-todo" on:keydown={createNew} placeholder="What needs to be done?" autofocus />
+	<!-- svelte-ignore a11y_autofocus -->
+	<input class="new-todo" onkeydown={createNew} placeholder="What needs to be done?" autofocus />
 </header>
 
 {#if items.length > 0}
@@ -96,31 +99,32 @@
 			id="toggle-all"
 			class="toggle-all"
 			type="checkbox"
-			on:change={toggleAll}
+			onchange={toggleAll}
 			checked={numCompleted === items.length}
 		/>
 		<label for="toggle-all">Mark all as complete</label>
 
 		<ul class="todo-list">
-			{#each filtered as item, index (item.id)}
-				<li class:completed={item.completed} class:editing={editing === index}>
+			{#each filtered as item (item.id)}
+				<li class:completed={item.completed} class:editing={editing === item.id}>
 					<div class="view">
 						<input class="toggle" type="checkbox" bind:checked={item.completed} />
-						<!-- svelte-ignore a11y-label-has-associated-control -->
-						<label on:dblclick={() => (editing = index)}>{item.description}</label>
-						<button on:click={() => remove(index)} class="destroy" />
+					<!-- svelte-ignore a11y_label_has_associated_control -->
+					<label ondblclick={() => (editing = item.id)}>{item.description}</label>
+					<!-- svelte-ignore a11y_consider_explicit_label -->
+					<button onclick={() => remove(item.id)} class="destroy"></button>
 					</div>
 
-					{#if editing === index}
-						<!-- svelte-ignore a11y-autofocus -->
-						<input
-							value={item.description}
-							id="edit"
-							class="edit"
-							on:keydown={handleEdit}
-							on:blur={submit}
-							autofocus
-						/>
+					{#if editing === item.id}
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						value={item.description}
+						id="edit-{item.id}"
+						class="edit"
+						onkeydown={handleEdit}
+						onblur={submit}
+						autofocus
+					/>
 					{/if}
 				</li>
 			{/each}
@@ -134,18 +138,18 @@
 
 			<ul class="filters">
 				<li>
-					<a class:selected={currentFilter === 'all'} href="#/">All</a>
+					<a class:selected={currentFilter === 'all'} href="#/" onclick={() => (currentFilter = 'all')}>All</a>
 				</li>
 				<li>
-					<a class:selected={currentFilter === 'active'} href="#/active">Active</a>
+					<a class:selected={currentFilter === 'active'} href="#/active" onclick={() => (currentFilter = 'active')}>Active</a>
 				</li>
 				<li>
-					<a class:selected={currentFilter === 'completed'} href="#/completed">Completed</a>
+					<a class:selected={currentFilter === 'completed'} href="#/completed" onclick={() => (currentFilter = 'completed')}>Completed</a>
 				</li>
 			</ul>
 
 			{#if numCompleted}
-				<button class="clear-completed" on:click={clearCompleted}>Clear completed</button>
+				<button class="clear-completed" onclick={clearCompleted}>Clear completed</button>
 			{/if}
 		</footer>
 	</section>
